@@ -1,0 +1,19 @@
+[package]
+name = "metrics-exporter-csv-long2wide"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+
+[[bin]]
+name = "long2wide"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+chrono = "0.4"
+csv = "1"
+glob = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
