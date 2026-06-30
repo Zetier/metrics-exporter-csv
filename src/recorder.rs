@@ -330,7 +330,6 @@ mod tests {
             writer.flush().await.expect("flush");
 
             let rows = read_csv(&path).await;
-            assert_eq!(rows.len(), 4);
             let header = &rows[0];
             assert_eq!(
                 *header,
@@ -343,32 +342,41 @@ mod tests {
                 ]
             );
 
-            let mut entries: HashMap<String, (String, String, String)> = HashMap::new();
+            // Scalar metrics are one row each; histograms are one row per statistic.
+            let mut scalars: HashMap<String, (String, String, String)> = HashMap::new();
+            let mut histogram: HashMap<String, String> = HashMap::new();
             for row in rows.iter().skip(1) {
                 assert_eq!(row.len(), 5);
                 assert!(!row[0].is_empty(), "timestamp missing");
-                entries.insert(
-                    row[1].clone(),
-                    (row[2].clone(), row[3].clone(), row[4].clone()),
-                );
+                if row[1] == "latency" {
+                    assert_eq!(row[2], "histogram");
+                    histogram.insert(row[3].clone(), row[4].clone());
+                } else {
+                    scalars.insert(
+                        row[1].clone(),
+                        (row[2].clone(), row[3].clone(), row[4].clone()),
+                    );
+                }
             }
 
             assert_eq!(
-                entries.get("counter_total"),
+                scalars.get("counter_total"),
                 Some(&("counter".to_string(), "".to_string(), "2".to_string()))
             );
             assert_eq!(
-                entries.get("temperature"),
+                scalars.get("temperature"),
                 Some(&("gauge".to_string(), "".to_string(), "1.250000".to_string()))
             );
+            assert_eq!(histogram.get("stat=count").map(String::as_str), Some("2"));
             assert_eq!(
-                entries.get("latency"),
-                Some(&(
-                    "histogram".to_string(),
-                    "".to_string(),
-                    "10.000000:1|20.000000:1".to_string()
-                ))
+                histogram.get("stat=min").map(String::as_str),
+                Some("10.000000")
             );
+            assert_eq!(
+                histogram.get("stat=max").map(String::as_str),
+                Some("20.000000")
+            );
+            assert!(histogram.contains_key("stat=q50"), "q50 row missing");
 
             assert!(bucket.is_empty(), "histogram bucket should be cleared");
         })

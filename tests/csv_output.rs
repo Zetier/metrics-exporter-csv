@@ -194,14 +194,22 @@ fn histogram_values_are_encoded() {
         .await;
 
         let rows = read_rows(&path).await;
-        let mut saw_hist = false;
+        let mut histogram = std::collections::HashMap::new();
         for row in rows.iter().skip(1) {
-            if row[1] == "latency" && row[2] == "histogram" && row[3].is_empty() {
-                assert_eq!(row[4], "1.000000:1|3.000000:1");
-                saw_hist = true;
+            if row[1] == "latency" && row[2] == "histogram" {
+                histogram.insert(row[3].clone(), row[4].clone());
             }
         }
-        assert!(saw_hist, "histogram row missing");
+        assert_eq!(histogram.get("stat=count").map(String::as_str), Some("2"));
+        assert_eq!(
+            histogram.get("stat=min").map(String::as_str),
+            Some("1.000000")
+        );
+        assert_eq!(
+            histogram.get("stat=max").map(String::as_str),
+            Some("3.000000")
+        );
+        assert!(histogram.contains_key("stat=q50"), "q50 row missing");
     })
 }
 

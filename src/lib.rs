@@ -9,12 +9,15 @@
 //! It can be installed directly or composed with other recorders using `metrics-util` fanout
 //! layers.
 //!
-//! Histograms are encoded in the `value` field as `value:count` pairs delimited by `|`
-//! (values formatted to 6 decimals; non-finite values as `-inf`, `inf`, `NaN`).
-//! Finite values are sorted numerically and non-finite values are appended; empty histograms
-//! emit an empty `value` field.
-//! Histogram buckets are cleared after each snapshot, so counts represent samples recorded since
-//! the previous flush interval.
+//! Histograms are summarized into quantiles rather than encoded as a single composite cell. Each
+//! histogram emits one row per statistic, with the statistic carried in the `labels` field as a
+//! `stat=<name>` pair and a scalar in the `value` field. Finite samples feed a DDSketch quantile
+//! summary that produces `count`, `min`, `q50`/`q90`/`q95`/`q99`/`q999`, and `max` (values
+//! formatted to 6 decimals). `count` is always emitted, so a registered histogram with no samples
+//! still produces a `stat=count` row with value `0`. Non-finite samples are reported as `-inf`,
+//! `inf`, and `nan` counts.
+//! Histogram buckets are cleared after each snapshot, so quantiles describe the samples recorded
+//! since the previous flush interval.
 //!
 //! The output file is created immediately when the recorder is constructed. The base output path
 //! must not already exist; creation fails if it does. The CSV header is written once on creation.
@@ -24,7 +27,9 @@
 //! timestamp_rfc3339,name,kind,labels,value
 //! 2026-01-08T12:00:00.123Z,requests_total,counter,method=get,42
 //! 2026-01-08T12:00:00.123Z,temperature,gauge,,21.400000
-//! 2026-01-08T12:00:00.123Z,latency_ms,histogram,,1.000000:2|2.000000:5|inf:1
+//! 2026-01-08T12:00:00.123Z,latency_ms,histogram,stat=count,8
+//! 2026-01-08T12:00:00.123Z,latency_ms,histogram,stat=q50,1.500000
+//! 2026-01-08T12:00:00.123Z,latency_ms,histogram,stat=q99,2.000000
 //! ```
 //!
 //! ## Name and label encoding

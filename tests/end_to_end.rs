@@ -68,8 +68,8 @@ fn local_recorder_writes_metrics_on_drop() {
             }
             if row[1] == "latency"
                 && row[2] == "histogram"
-                && row[3].is_empty()
-                && row[4] == "1.000000:1"
+                && row[3] == "stat=count"
+                && row[4] == "1"
             {
                 saw_hist = true;
             }
