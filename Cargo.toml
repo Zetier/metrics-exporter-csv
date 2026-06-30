@@ -1,8 +1,17 @@
 [package]
 name = "metrics-exporter-csv"
 version = "0.1.0"
+authors = [
+  "ApertureC Team <aperturec@zetier.com>",
+  "Joe Kale <joe@zetier.com>"
+]
 edition = "2024"
 rust-version = "1.85"
+repository = "https://github.com/Zetier/metrics-exporter-csv"
+description = "A metrics recorder that writes metric snapshots to CSV files"
+license = "MIT OR Apache-2.0"
+keywords = ["metrics", "csv", "exporter", "recorder", "snapshot"]
+categories = ["development-tools::debugging"]
 
 [dependencies]
 chrono = "0.4"

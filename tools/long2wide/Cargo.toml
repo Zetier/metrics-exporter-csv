@@ -3,6 +3,7 @@ name = "metrics-exporter-csv-long2wide"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
+publish = false
 
 [[bin]]
 name = "long2wide"
