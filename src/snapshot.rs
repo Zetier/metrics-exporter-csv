@@ -100,14 +100,7 @@ fn format_name(key: &Key) -> String {
 }
 
 fn format_labels(key: &Key) -> String {
-    let mut labels = key.labels();
-    let first = match labels.next() {
-        Some(label) => label,
-        None => return String::new(),
-    };
-
-    std::iter::once(first)
-        .chain(labels)
+    key.labels()
         .map(|label| LabelEntry {
             key: label.key(),
             value: label.value(),
