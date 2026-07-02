@@ -182,13 +182,17 @@ async fn run_write_loop_async(
 
     let mut race = stream::race(
         Timer::interval(interval).map(|_| Event::Timer),
-        stream::once(shutdown).map(|_| Event::Shutdown),
+        stream::once_future(shutdown).map(|_| Event::Shutdown),
     );
     loop {
         match race.next().await {
             Some(Event::Timer) => {
                 if let Err(error) = write_snapshot(&registry, &mut writer).await {
                     error!(%error, "csv exporter periodic write failed");
+                    return;
+                }
+                if let Err(error) = writer.flush().await {
+                    error!(%error, "csv exporter periodic flush failed");
                     return;
                 }
             }
