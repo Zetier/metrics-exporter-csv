@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/Zetier/metrics-exporter-csv/compare/metrics-exporter-csv-v0.1.1...metrics-exporter-csv-v0.2.0) - 2026-09-14
+
+### Added
+
+- export Prometheus snapshots alongside local metrics
+
 ## [0.1.1](https://github.com/Zetier/metrics-exporter-csv/compare/metrics-exporter-csv-v0.1.0...metrics-exporter-csv-v0.1.1) - 2026-07-07
 
 ### Fixed
