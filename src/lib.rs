@@ -9,14 +9,14 @@
 //! It can be installed directly or composed with other recorders using `metrics-util` fanout
 //! layers.
 //!
-//! Histograms are summarized into quantiles rather than encoded as a single composite cell. Each
+//! Locally recorded histograms are summarized into quantiles. Each
 //! histogram emits one row per statistic, with the statistic carried in the `labels` field as a
 //! `stat=<name>` pair and a scalar in the `value` field. Finite samples feed a DDSketch quantile
 //! summary that produces `count`, `min`, `q50`/`q90`/`q95`/`q99`/`q999`, and `max` (values
 //! formatted to 6 decimals). `count` is always emitted, so a registered histogram with no samples
 //! still produces a `stat=count` row with value `0`. Non-finite samples are reported as `-inf`,
 //! `inf`, and `nan` counts.
-//! Histogram buckets are cleared after each snapshot, so quantiles describe the samples recorded
+//! Local histogram buckets are cleared after each snapshot, so quantiles describe the samples recorded
 //! since the previous flush interval.
 //!
 //! The output file is created immediately when the recorder is constructed. The base output path
@@ -73,6 +73,8 @@
 //! future onto the current Tokio runtime.
 
 mod error;
+#[cfg(feature = "prometheus")]
+mod prometheus;
 mod recorder;
 mod snapshot;
 mod util;
@@ -81,3 +83,6 @@ pub use crate::{
     error::{BuildError, CsvError},
     recorder::{CsvBuilder, CsvRecorder, ExporterFuture},
 };
+
+#[cfg(feature = "prometheus")]
+pub use prometheus::SnapshotSource;

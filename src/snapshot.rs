@@ -15,11 +15,24 @@ use crate::{
     util::{format_float, sanitize_component, write_sanitized_component},
 };
 
-pub(crate) struct MetricSample {
-    pub(crate) name: String,
-    pub(crate) kind: &'static str,
-    pub(crate) labels: String,
-    pub(crate) value: String,
+#[derive(Debug)]
+pub struct MetricSample {
+    name: String,
+    kind: &'static str,
+    labels: String,
+    value: String,
+}
+
+#[cfg(feature = "prometheus")]
+impl MetricSample {
+    pub fn new(key: &Key, kind: &'static str, value: impl ToString) -> Self {
+        Self {
+            name: format_name(key),
+            kind,
+            labels: format_labels(key),
+            value: value.to_string(),
+        }
+    }
 }
 
 pub fn collect_samples(registry: &Registry<Key, AtomicStorage>) -> Vec<MetricSample> {
@@ -76,8 +89,17 @@ pub fn collect_samples(registry: &Registry<Key, AtomicStorage>) -> Vec<MetricSam
 pub(crate) async fn write_snapshot(
     registry: &Registry<Key, AtomicStorage>,
     writer: &mut AsyncWriter<File>,
+    #[cfg(feature = "prometheus")] source: Option<&dyn crate::SnapshotSource>,
 ) -> Result<(), CsvError> {
     let samples = collect_samples(registry);
+    #[cfg(feature = "prometheus")]
+    let samples = {
+        let mut samples = samples;
+        if let Some(source) = source {
+            samples.extend(crate::prometheus::collect_samples(&source.snapshot()));
+        }
+        samples
+    };
     if samples.is_empty() {
         return Ok(());
     }
@@ -129,7 +151,7 @@ const QUANTILES: [(&str, f64); 5] = [
 /// Finite samples feed a DDSketch ([`Summary`]) from which quantiles, `min`, and `max` are
 /// derived; `count` is always emitted (even for an empty bucket) so a registered histogram still
 /// produces a row. Non-finite samples cannot enter the sketch and are reported as `-inf`/`inf`/
-/// `nan` counts. Every returned `value` is a scalar string, keeping the CSV `value` column numeric.
+/// `nan` counts. Every returned `value` is a scalar string.
 fn histogram_stats(bucket: &AtomicBucket<f64>) -> Vec<(&'static str, String)> {
     let mut summary = Summary::with_defaults();
     let mut neg_infinite = 0_u64;
