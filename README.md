@@ -95,7 +95,7 @@ timestamp_rfc3339,name,kind,labels,value
 - `name` is the sanitized metric name.
 - `labels` is a `|`-delimited list of `key=value` pairs (empty when no labels). Histogram rows
   additionally carry the statistic as a `stat=<name>` pair, appended to any real labels.
-- `value` is always a scalar, formatted as:
+- For locally recorded metrics, `value` is a scalar, formatted as:
   - Counters: integer value at flush time.
   - Gauges: fixed 6-decimal float (rounded).
   - Histograms: one row per statistic, with the statistic named in `stat=`. Finite samples feed a
@@ -122,7 +122,7 @@ underscores. Other characters are preserved.
 
 - The recorder snapshots all known metrics every flush interval (default: 3 seconds).
 - Counters and gauges are sampled at flush time.
-- Histograms are **cleared** on each snapshot, so histogram counts represent the samples
+- Locally recorded histograms are **cleared** on each snapshot, so histogram counts represent the samples
   recorded since the previous flush interval.
 
 ## Deterministic shutdown
@@ -162,9 +162,23 @@ smol::spawn(exporter);
 - The `name` field is the sanitized metric name. The `labels` field contains `key=value` pairs
   delimited by `|` in the order provided by the metrics key. Components are lowercased and
   whitespace plus `|`/`=` are normalized to underscores.
-- Histograms emit one row per statistic, with the statistic in a `stat=<name>` label and a scalar
+- Locally recorded histograms emit one row per statistic, with the statistic in a `stat=<name>` label and a scalar
   `value`: `count`, `min`, `q50`/`q90`/`q95`/`q99`/`q999`, `max` (quantiles from a DDSketch
   summary), plus `-inf`/`inf`/`nan` counts when present.
 - If the path has no extension, `.csv` is appended.
 - The base path must not already exist; creation fails with an error if it does. The base file is
   created when the recorder is constructed and the header is written once.
+
+## Received snapshots
+
+Enable the optional `prometheus` feature to implement `SnapshotSource`, whose
+`snapshot` method returns `Vec<MetricFamily>` from
+`prometheus_client::encoding::prometheus_protobuf::prometheus_data_model`.
+Pass that source to `CsvBuilder::with_snapshot_source`.
+
+Each flush writes the source's current counters, gauges, and histograms alongside
+local measurements, preserving source labels with the encoding described above.
+Other metric types are ignored. Histogram rows use `stat` labels for count, sum,
+schema, zero threshold/count, and the original bucket, span, delta, and count
+collections. Collections are debug-formatted strings in the `value` column;
+buckets are not decoded or converted into interval quantiles.

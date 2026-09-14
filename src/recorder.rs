@@ -1,3 +1,6 @@
+#[cfg(feature = "prometheus")]
+use crate::SnapshotSource;
+
 use std::{
     fs::{self, OpenOptions},
     future::Future,
@@ -84,6 +87,8 @@ pub type ExporterFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 pub struct CsvBuilder {
     path: Option<PathBuf>,
     flush_interval: Duration,
+    #[cfg(feature = "prometheus")]
+    snapshot_source: Option<Arc<dyn SnapshotSource>>,
 }
 
 impl Default for CsvBuilder {
@@ -91,6 +96,8 @@ impl Default for CsvBuilder {
         Self {
             path: None,
             flush_interval: Duration::from_secs(DEFAULT_FLUSH_INTERVAL_SECS),
+            #[cfg(feature = "prometheus")]
+            snapshot_source: None,
         }
     }
 }
@@ -109,6 +116,13 @@ impl CsvBuilder {
         } else {
             interval
         };
+        self
+    }
+
+    /// Polls the source during periodic and final flushes.
+    #[cfg(feature = "prometheus")]
+    pub fn with_snapshot_source(mut self, source: impl SnapshotSource + 'static) -> Self {
+        self.snapshot_source = Some(Arc::new(source));
         self
     }
 
@@ -162,6 +176,8 @@ impl CsvBuilder {
             Arc::clone(&registry),
             self.flush_interval,
             shutdown,
+            #[cfg(feature = "prometheus")]
+            self.snapshot_source,
         ));
 
         let recorder = CsvRecorder::new(registry, event);
@@ -174,6 +190,7 @@ async fn run_write_loop_async(
     registry: Arc<Registry<Key, AtomicStorage>>,
     interval: Duration,
     shutdown: EventListener,
+    #[cfg(feature = "prometheus")] snapshot_source: Option<Arc<dyn SnapshotSource>>,
 ) {
     enum Event {
         Timer,
@@ -187,7 +204,14 @@ async fn run_write_loop_async(
     loop {
         match race.next().await {
             Some(Event::Timer) => {
-                if let Err(error) = write_snapshot(&registry, &mut writer).await {
+                if let Err(error) = write_snapshot(
+                    &registry,
+                    &mut writer,
+                    #[cfg(feature = "prometheus")]
+                    snapshot_source.as_deref(),
+                )
+                .await
+                {
                     error!(%error, "csv exporter periodic write failed");
                     return;
                 }
@@ -197,7 +221,14 @@ async fn run_write_loop_async(
                 }
             }
             Some(Event::Shutdown) => {
-                if let Err(error) = write_snapshot(&registry, &mut writer).await {
+                if let Err(error) = write_snapshot(
+                    &registry,
+                    &mut writer,
+                    #[cfg(feature = "prometheus")]
+                    snapshot_source.as_deref(),
+                )
+                .await
+                {
                     error!(%error, "csv exporter final write failed");
                     return;
                 }
@@ -286,9 +317,14 @@ mod tests {
 
             let registry = Registry::<Key, AtomicStorage>::atomic();
             let mut writer = open_append_writer_async(&path).await.expect("open writer");
-            write_snapshot(&registry, &mut writer)
-                .await
-                .expect("write row");
+            write_snapshot(
+                &registry,
+                &mut writer,
+                #[cfg(feature = "prometheus")]
+                None,
+            )
+            .await
+            .expect("write row");
             writer.flush().await.expect("flush");
 
             let rows = read_csv(&path).await;
@@ -328,9 +364,14 @@ mod tests {
             bucket.push(20.0);
 
             let mut writer = open_append_writer_async(&path).await.expect("open writer");
-            write_snapshot(&registry, &mut writer)
-                .await
-                .expect("write row");
+            write_snapshot(
+                &registry,
+                &mut writer,
+                #[cfg(feature = "prometheus")]
+                None,
+            )
+            .await
+            .expect("write row");
             writer.flush().await.expect("flush");
 
             let rows = read_csv(&path).await;
@@ -384,5 +425,114 @@ mod tests {
 
             assert!(bucket.is_empty(), "histogram bucket should be cleared");
         })
+    }
+
+    #[cfg(feature = "prometheus")]
+    mod snapshot_source_tests {
+        use super::*;
+        use metrics::Level;
+        use prometheus_client::encoding::prometheus_protobuf::prometheus_data_model::{
+            Bucket, BucketSpan, Histogram, LabelPair, Metric, MetricFamily, MetricType,
+        };
+
+        #[derive(Debug)]
+        struct ReceivedSnapshot;
+
+        impl SnapshotSource for ReceivedSnapshot {
+            fn snapshot(&self) -> Vec<MetricFamily> {
+                vec![MetricFamily {
+                    name: "client_latency".into(),
+                    r#type: MetricType::Histogram.into(),
+                    metric: vec![Metric {
+                        label: vec![LabelPair {
+                            name: "session_id".into(),
+                            value: "7".into(),
+                        }],
+                        histogram: Some(Histogram {
+                            sample_count: 9_007_199_254_740_993,
+                            sample_sum: 3.5,
+                            schema: 2,
+                            zero_threshold: 0.1,
+                            zero_count: 1,
+                            bucket: vec![Bucket {
+                                cumulative_count: 3,
+                                upper_bound: 2.0,
+                                ..Default::default()
+                            }],
+                            positive_span: vec![BucketSpan {
+                                offset: 1,
+                                length: 2,
+                            }],
+                            positive_delta: vec![3, -1],
+                            negative_span: vec![BucketSpan {
+                                offset: -1,
+                                length: 1,
+                            }],
+                            negative_count: vec![1.5],
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }]
+            }
+        }
+
+        #[test]
+        fn final_flush_combines_local_metrics_and_additional_snapshots() {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("metrics.csv");
+            let (recorder, exporter) = CsvBuilder::default()
+                .with_path(&path)
+                .with_snapshot_source(ReceivedSnapshot)
+                .build()
+                .unwrap();
+            let metadata = Metadata::new(module_path!(), Level::INFO, Some(module_path!()));
+            recorder
+                .register_counter(&Key::from_name("server_requests"), &metadata)
+                .increment(2);
+            drop(recorder);
+            smol::block_on(exporter);
+            smol::block_on(async {
+                let rows = read_csv(&path).await;
+                assert_eq!(rows.len(), 14);
+                assert!(
+                    rows.iter()
+                        .any(|row| row[1..] == ["server_requests", "counter", "", "2"])
+                );
+                let mut values = HashMap::new();
+                for row in rows.iter().filter(|row| row[1] == "client_latency") {
+                    assert_eq!(row[2], "histogram");
+                    assert!(values.insert(row[3].clone(), row[4].clone()).is_none());
+                }
+                for (stat, value) in [
+                    ("count", "9007199254740993"),
+                    ("sum", "3.5"),
+                    ("schema", "2"),
+                    ("zero_threshold", "0.1"),
+                    ("zero_count", "1"),
+                    ("positive_spans", "[BucketSpan { offset: 1, length: 2 }]"),
+                    ("positive_deltas", "[3, -1]"),
+                    ("positive_counts", "[]"),
+                    ("negative_spans", "[BucketSpan { offset: -1, length: 1 }]"),
+                    ("negative_deltas", "[]"),
+                    ("negative_counts", "[1.5]"),
+                ] {
+                    assert_eq!(
+                        values
+                            .remove(&format!("session_id=7|stat={stat}"))
+                            .as_deref(),
+                        Some(value)
+                    );
+                }
+                let snapshot = ReceivedSnapshot.snapshot();
+                let bucket = &snapshot[0].metric[0].histogram.as_ref().unwrap().bucket;
+                assert_eq!(
+                    values.remove("session_id=7|stat=buckets"),
+                    Some(format!("{bucket:?}"))
+                );
+                assert!(values.is_empty());
+            });
+        }
     }
 }

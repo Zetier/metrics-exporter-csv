@@ -14,6 +14,7 @@ keywords = ["metrics", "csv", "exporter", "recorder", "snapshot"]
 categories = ["development-tools::debugging"]
 
 [dependencies]
+prometheus-client = { version = "0.25", features = ["prometheus_protobuf", "protobuf-protox"], optional = true }
 chrono = "0.4"
 csv-async = "1.3.1"
 event-listener = "5.4"
@@ -29,6 +30,7 @@ tokio = { version = "1", features = ["rt"], optional = true }
 tempfile = "3"
 
 [features]
+prometheus = ["dep:prometheus-client"]
 tokio = ["dep:tokio"]
 
 [workspace]
